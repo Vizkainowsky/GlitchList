@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Gamepad2, Calendar, Search, AlertCircle, Trophy, Loader } from 'lucide-react';
+import { getCache, setCache, cacheKey } from '../services/apiCache';
 
 const PAGE_SIZE = 20;
 
@@ -8,27 +9,38 @@ const GamesPage = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentSearch, setCurrentSearch] = useState("");
-  const [nextUrl, setNextUrl] = useState(null); // RAWG devuelve la URL de la siguiente página directamente
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentSearch, setCurrentSearch] = useState('');
+  const [nextUrl, setNextUrl] = useState(null);
 
   const API_KEY = import.meta.env.VITE_RAWG_KEY;
   const BASE_URL = 'https://api.rawg.io/api';
 
-  const fetchGames = async (term = "", append = false, overrideUrl = null) => {
+  const fetchGames = async (term = '', append = false, overrideUrl = null) => {
     if (append) setLoadingMore(true);
     else { setLoading(true); setGames([]); }
     setError(null);
 
     if (!API_KEY) {
-      setError("Falta la API Key de RAWG en el archivo .env");
+      setError('Falta la API Key de RAWG en el archivo .env');
       setLoading(false);
+      return;
+    }
+
+    // Clave de caché: para "cargar más" usamos la overrideUrl como clave
+    const key = overrideUrl ? `games_more_${overrideUrl}` : cacheKey('games', term, 1);
+    const cached = getCache(key);
+
+    if (cached) {
+      setNextUrl(cached.next);
+      setGames(prev => append ? [...prev, ...cached.results] : cached.results);
+      setLoading(false);
+      setLoadingMore(false);
       return;
     }
 
     try {
       let url = overrideUrl;
-
       if (!url) {
         if (term) {
           url = `${BASE_URL}/games?key=${API_KEY}&search=${term}&page_size=${PAGE_SIZE}`;
@@ -42,12 +54,14 @@ const GamesPage = () => {
       const res = await fetch(url);
       const data = await res.json();
 
-      // RAWG devuelve { next: "url_siguiente_pagina", results: [...] }
+      // Guardamos en caché
+      setCache(key, { results: data.results || [], next: data.next || null });
+
       setNextUrl(data.next || null);
-      setGames(prev => append ? [...prev, ...data.results] : data.results || []);
+      setGames(prev => append ? [...prev, ...(data.results || [])] : data.results || []);
     } catch (err) {
       console.error(err);
-      setError("Error al conectar con RAWG");
+      setError('Error al conectar con RAWG');
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -62,7 +76,6 @@ const GamesPage = () => {
     fetchGames(searchTerm, false);
   };
 
-  // Al pulsar "Cargar más" usamos la nextUrl que nos dio RAWG
   const handleLoadMore = () => fetchGames(currentSearch, true, nextUrl);
 
   const THEME_COLOR = 'var(--type-game)';
@@ -70,7 +83,7 @@ const GamesPage = () => {
   return (
     <div className="page-container" style={{ padding: '2rem' }}>
       <header style={{
-        marginBottom: '2rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        marginBottom: '2rem', borderBottom: '1px solid rgba(255,255,255,0.1)',
         paddingBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -103,11 +116,9 @@ const GamesPage = () => {
             {games.map((game) => (
               <div key={game.id} className="anime-card">
                 <div className="card-image-wrapper" style={{ position: 'relative', height: '250px', overflow: 'hidden' }}>
-                  <img
-                    src={game.background_image || 'https://placehold.co/300x450?text=Sin+Imagen'}
+                  <img src={game.background_image || 'https://placehold.co/300x450?text=Sin+Imagen'}
                     alt={game.name} className="card-image"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   {game.metacritic && (
                     <div style={{
                       position: 'absolute', top: '10px', right: '10px',

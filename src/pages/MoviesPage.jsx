@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Film, Calendar, Search, Loader } from 'lucide-react';
+import { getCache, setCache, cacheKey } from '../services/apiCache';
 
-// OMDb devuelve máximo 10 resultados por página, pero tiene paginación con &page=N
 const PAGE_SIZE = 10;
 
 const MoviesPage = () => {
@@ -9,8 +9,8 @@ const MoviesPage = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("Evangelion");
-  const [currentSearch, setCurrentSearch] = useState("Evangelion");
+  const [searchTerm, setSearchTerm] = useState('Pokemon');
+  const [currentSearch, setCurrentSearch] = useState('Pokemon');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
 
@@ -23,8 +23,20 @@ const MoviesPage = () => {
     setError(null);
 
     if (!API_KEY) {
-      setError("Falta API Key de OMDb en .env");
+      setError('Falta API Key de OMDb en .env');
       setLoading(false);
+      return;
+    }
+
+    const key = cacheKey('movies', term, page);
+    const cached = getCache(key);
+
+    if (cached) {
+      setTotalResults(cached.totalResults);
+      setCurrentPage(page);
+      setMovies(prev => append ? [...prev, ...cached.movies] : cached.movies);
+      setLoading(false);
+      setLoadingMore(false);
       return;
     }
 
@@ -32,19 +44,21 @@ const MoviesPage = () => {
       const res = await fetch(`${BASE_URL}/?apikey=${API_KEY}&s=${term}&type=movie&page=${page}`);
       const data = await res.json();
 
-      if (data.Response === "True") {
-        setTotalResults(parseInt(data.totalResults || 0));
+      if (data.Response === 'True') {
+        const total = parseInt(data.totalResults || 0);
+        setCache(key, { movies: data.Search, totalResults: total });
+        setTotalResults(total);
         setCurrentPage(page);
         setMovies(prev => append ? [...prev, ...data.Search] : data.Search);
       } else {
         if (!append) {
           setMovies([]);
-          setError(data.Error || "No se encontraron películas");
+          setError(data.Error || 'No se encontraron películas');
         }
       }
     } catch (err) {
       console.error(err);
-      setError("Error de conexión");
+      setError('Error de conexión');
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -63,7 +77,6 @@ const MoviesPage = () => {
 
   const handleLoadMore = () => fetchMovies(currentSearch, currentPage + 1, true);
 
-  // OMDb pagina de 10 en 10, hay más si lo que hemos cargado es menor al total
   const hasMore = movies.length < totalResults;
   const TYPE_COLOR = 'var(--type-movie)';
 
@@ -97,7 +110,7 @@ const MoviesPage = () => {
               <div key={movie.imdbID} className="anime-card">
                 <div className="card-image-wrapper" style={{ position: 'relative', height: '300px', overflow: 'hidden' }}>
                   <img
-                    src={movie.Poster !== "N/A" ? movie.Poster : 'https://placehold.co/300x450?text=Sin+Imagen'}
+                    src={movie.Poster !== 'N/A' ? movie.Poster : 'https://placehold.co/300x450?text=Sin+Imagen'}
                     alt={movie.Title} className="card-image"
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
@@ -114,7 +127,6 @@ const MoviesPage = () => {
             ))}
           </div>
 
-          {/* Total de resultados */}
           {totalResults > 0 && (
             <p style={{ textAlign: 'center', color: '#666', marginTop: '1.5rem', fontSize: '0.9rem' }}>
               Mostrando {movies.length} de {totalResults} resultados

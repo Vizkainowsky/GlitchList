@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Zap, Search, Star, Calendar, MonitorPlay, Loader } from 'lucide-react';
+import { getCache, setCache, cacheKey } from '../services/apiCache';
 
 const PAGE_SIZE = 20;
 const API_URL = 'https://graphql.anilist.co';
@@ -23,19 +24,34 @@ const AnimePage = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentSearch, setCurrentSearch] = useState("");
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentSearch, setCurrentSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [hasNextPage, setHasNextPage] = useState(false);
 
-  const fetchAnime = async (term = "", page = 1, append = false) => {
+  const fetchAnime = async (term = '', page = 1, append = false) => {
     if (append) setLoadingMore(true);
     else { setLoading(true); setAnimes([]); }
     setError(null);
 
+    // Comprobamos caché antes de llamar a la API
+    const key = cacheKey('anime', term, page);
+    const cached = getCache(key);
+
+    if (cached) {
+      // Tenemos datos en caché — los usamos directamente sin fetch
+      setHasNextPage(cached.hasNextPage);
+      setCurrentPage(cached.currentPage);
+      setAnimes(prev => append ? [...prev, ...cached.media] : cached.media);
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+
+    // No hay caché — hacemos el fetch normal
     const variables = {
       page,
-      ...(term ? { search: term, sort: "SEARCH_MATCH" } : { sort: "TRENDING_DESC" })
+      ...(term ? { search: term, sort: 'SEARCH_MATCH' } : { sort: 'TRENDING_DESC' })
     };
 
     try {
@@ -48,12 +64,20 @@ const AnimePage = () => {
       if (data.errors) throw new Error(data.errors[0].message);
 
       const pageData = data.data.Page;
+
+      // Guardamos en caché para la próxima visita
+      setCache(key, {
+        media: pageData.media,
+        hasNextPage: pageData.pageInfo.hasNextPage,
+        currentPage: pageData.pageInfo.currentPage,
+      });
+
       setHasNextPage(pageData.pageInfo.hasNextPage);
       setCurrentPage(pageData.pageInfo.currentPage);
       setAnimes(prev => append ? [...prev, ...pageData.media] : pageData.media || []);
     } catch (err) {
       console.error(err);
-      setError("Error al conectar con AniList");
+      setError('Error al conectar con AniList');
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -75,7 +99,7 @@ const AnimePage = () => {
   return (
     <div className="page-container" style={{ padding: '2rem' }}>
       <header style={{
-        marginBottom: '2rem', borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        marginBottom: '2rem', borderBottom: '1px solid rgba(255,255,255,0.1)',
         paddingBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -101,21 +125,25 @@ const AnimePage = () => {
             {animes.map((anime) => (
               <div key={anime.id} className="anime-card">
                 <div className="card-image-wrapper" style={{ position: 'relative', height: '280px', overflow: 'hidden' }}>
-                  <img src={anime.coverImage.extraLarge || anime.coverImage.large} alt={anime.title.romaji}
-                    className="card-image" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <img src={anime.coverImage.extraLarge || anime.coverImage.large}
+                    alt={anime.title.romaji} className="card-image"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   {anime.averageScore && (
                     <div style={{
-                      position: 'absolute', top: '10px', right: '10px', background: 'rgba(0,0,0,0.8)',
-                      backdropFilter: 'blur(4px)', color: THEME_COLOR, padding: '4px 8px', borderRadius: '8px',
-                      display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', fontWeight: 'bold', border: `1px solid ${THEME_COLOR}`
+                      position: 'absolute', top: '10px', right: '10px',
+                      background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)',
+                      color: THEME_COLOR, padding: '4px 8px', borderRadius: '8px',
+                      display: 'flex', alignItems: 'center', gap: '4px',
+                      fontSize: '0.8rem', fontWeight: 'bold', border: `1px solid ${THEME_COLOR}`
                     }}>
                       <Star size={12} fill={THEME_COLOR} />{anime.averageScore}%
                     </div>
                   )}
                   {anime.format && (
                     <div style={{
-                      position: 'absolute', bottom: '10px', left: '10px', background: 'rgba(0,0,0,0.7)',
-                      color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px'
+                      position: 'absolute', bottom: '10px', left: '10px',
+                      background: 'rgba(0,0,0,0.7)', color: 'white', padding: '2px 6px',
+                      borderRadius: '4px', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '1px'
                     }}>{anime.format}</div>
                   )}
                 </div>

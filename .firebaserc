@@ -1,7 +1,6 @@
 {
   "projects": {
-    "default": "media-verse-5561f",
-    "production": "glitchlist-8cc90"
+    "default": "glitchlist-8cc90"
   },
   "targets": {},
   "etags": {}

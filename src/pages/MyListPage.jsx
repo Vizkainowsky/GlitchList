@@ -3,8 +3,8 @@ import { collection, onSnapshot, deleteDoc, doc, query, where } from 'firebase/f
 import { db, auth } from '../firebase';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, Edit, Calendar, List, Filter, ArrowUpDown } from 'lucide-react';
+import ConfirmModal from '../components/ConfirmModal';
 
-// Cuántos ítems se muestran por "página"
 const PAGE_SIZE = 12;
 
 const MyListPage = ({ onEditItem }) => {
@@ -12,8 +12,14 @@ const MyListPage = ({ onEditItem }) => {
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState('all');
   const [sortOrder, setSortOrder] = useState('newest');
-  // Controla cuántos ítems mostramos (se incrementa al pulsar "Cargar más")
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Estado del modal de confirmación
+  const [confirmState, setConfirmState] = useState({
+    isOpen: false,
+    itemId: null,
+    itemTitle: '',
+  });
 
   const navigate = useNavigate();
   const ICON_COLOR = '#bf00ff';
@@ -22,33 +28,39 @@ const MyListPage = ({ onEditItem }) => {
     const userId = auth.currentUser?.uid;
     if (!userId) return;
 
-    // Filtramos en Firestore directamente por userId: solo llegamos los documentos del usuario
-    const q = query(
-      collection(db, "items"),
-      where("userId", "==", userId)
-    );
-
+    const q = query(collection(db, 'items'), where('userId', '==', userId));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setItems(docs);
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
-  // Reiniciamos la paginación cuando cambia el filtro o el orden
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [filterType, sortOrder]);
 
-  const handleDelete = async (id) => {
-    if (confirm("¿Estás seguro de borrar esto de tu lista?")) {
-      await deleteDoc(doc(db, "items", id));
-    }
+  // Abre el modal de confirmación guardando qué ítem queremos borrar
+  const handleDeleteClick = (item) => {
+    setConfirmState({
+      isOpen: true,
+      itemId: item.id,
+      itemTitle: item.title,
+    });
   };
 
-  // Filtrado + ordenación en cliente (los datos ya son solo del usuario)
+  // Se ejecuta cuando el usuario confirma en el modal
+  const handleConfirmDelete = async () => {
+    await deleteDoc(doc(db, 'items', confirmState.itemId));
+    setConfirmState({ isOpen: false, itemId: null, itemTitle: '' });
+  };
+
+  // Cierra el modal sin borrar nada
+  const handleCancelDelete = () => {
+    setConfirmState({ isOpen: false, itemId: null, itemTitle: '' });
+  };
+
   const getProcessedItems = () => {
     let result = [...items];
 
@@ -64,7 +76,6 @@ const MyListPage = ({ onEditItem }) => {
         case 'year-old':   return parseInt(a.year || 0) - parseInt(b.year || 0);
         case 'newest':
         default:
-          // Más recientes primero (por fecha de creación)
           return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
       }
     });
@@ -73,14 +84,23 @@ const MyListPage = ({ onEditItem }) => {
   };
 
   const processedItems = getProcessedItems();
-  // Solo mostramos los primeros N ítems
   const visibleItems = processedItems.slice(0, visibleCount);
   const hasMore = visibleCount < processedItems.length;
 
   return (
     <div className="page-container" style={{ padding: '2rem' }}>
 
-      {/* CABECERA CON FILTROS */}
+      {/* MODAL DE CONFIRMACIÓN */}
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title="¿Eliminar este ítem?"
+        message={`"${confirmState.itemTitle}" se eliminará de tu lista permanentemente.`}
+        confirmText="Sí, eliminar"
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
+
+      {/* CABECERA */}
       <header style={{
         display: 'flex', alignItems: 'center', flexWrap: 'wrap',
         gap: '2rem', marginBottom: '2rem',
@@ -90,7 +110,6 @@ const MyListPage = ({ onEditItem }) => {
           <List size={32} color={ICON_COLOR} />
           <h2 style={{ fontSize: '2rem', margin: 0, color: 'white' }}>
             Mi Lista
-            {/* Contador total */}
             {!loading && (
               <span style={{ fontSize: '1rem', color: '#666', marginLeft: '0.75rem', fontWeight: 400 }}>
                 ({processedItems.length} {processedItems.length === 1 ? 'ítem' : 'ítems'})
@@ -101,7 +120,6 @@ const MyListPage = ({ onEditItem }) => {
 
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
 
-          {/* Selector TIPO */}
           <div style={{ position: 'relative' }}>
             <Filter size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#aaa' }} />
             <select
@@ -120,7 +138,6 @@ const MyListPage = ({ onEditItem }) => {
             </select>
           </div>
 
-          {/* Selector ORDEN */}
           <div style={{ position: 'relative' }}>
             <ArrowUpDown size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#aaa' }} />
             <select
@@ -144,11 +161,10 @@ const MyListPage = ({ onEditItem }) => {
 
       {loading && <div className="spinner"></div>}
 
-      {/* ESTADO VACÍO */}
       {!loading && processedItems.length === 0 && (
         <div style={{ textAlign: 'center', color: '#888', marginTop: '4rem' }}>
           <p style={{ fontSize: '1.1rem' }}>
-            {items.length === 0 ? "Tu lista está vacía." : "No hay resultados para estos filtros."}
+            {items.length === 0 ? 'Tu lista está vacía.' : 'No hay resultados para estos filtros.'}
           </p>
           {items.length === 0 && (
             <p style={{ marginTop: '0.5rem' }}>
@@ -158,7 +174,6 @@ const MyListPage = ({ onEditItem }) => {
         </div>
       )}
 
-      {/* GRID */}
       <div className="anime-grid">
         {visibleItems.map((item) => (
           <div key={item.id} className="anime-card">
@@ -200,32 +215,37 @@ const MyListPage = ({ onEditItem }) => {
                   </span>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--accent)', marginTop: '5px' }}>
-                  {item.type.toUpperCase()} • {item.genre}
+                  {({ game: 'Videojuego', movie: 'Película', anime: 'Anime', book: 'Libro' }[item.type] || item.type)} • {item.genre}
                 </div>
               </div>
 
-              <div className="card-actions" style={{ marginTop: '1rem' }}>
+              <div className="card-actions" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
                 <button
-                  className="card-btn edit-btn"
                   onClick={() => onEditItem(item)}
                   style={{
+                    flex: 1,
                     background: 'rgba(0, 123, 255, 0.1)', border: '1px solid #007bff',
                     color: '#007bff', display: 'flex', justifyContent: 'center',
                     alignItems: 'center', gap: '5px', padding: '0.5rem',
                     borderRadius: '6px', cursor: 'pointer', transition: 'all 0.2s'
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(0,123,255,0.25)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(0,123,255,0.1)'; }}
                 >
                   <Edit size={16} /> Editar
                 </button>
+
                 <button
-                  className="card-btn delete-btn"
-                  onClick={() => handleDelete(item.id)}
+                  onClick={() => handleDeleteClick(item)}
                   style={{
+                    flex: 1,
                     background: 'rgba(255, 0, 0, 0.1)', border: '1px solid #ff4444',
                     color: '#ff4444', display: 'flex', justifyContent: 'center',
                     alignItems: 'center', gap: '5px', padding: '0.5rem',
                     borderRadius: '6px', cursor: 'pointer', transition: 'all 0.2s'
                   }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,0,0,0.25)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,0,0,0.1)'; }}
                 >
                   <Trash2 size={16} /> Eliminar
                 </button>
@@ -235,30 +255,17 @@ const MyListPage = ({ onEditItem }) => {
         ))}
       </div>
 
-      {/* BOTÓN CARGAR MÁS */}
       {hasMore && (
         <div style={{ textAlign: 'center', marginTop: '3rem' }}>
           <button
             onClick={() => setVisibleCount(v => v + PAGE_SIZE)}
             style={{
-              background: 'transparent',
-              border: '1px solid var(--accent)',
-              color: 'var(--accent)',
-              padding: '0.75rem 2.5rem',
-              borderRadius: '50px',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: '600',
-              transition: 'all 0.3s ease',
+              background: 'transparent', border: '1px solid var(--accent)',
+              color: 'var(--accent)', padding: '0.75rem 2.5rem', borderRadius: '50px',
+              cursor: 'pointer', fontSize: '1rem', fontWeight: '600', transition: 'all 0.3s ease',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--accent)';
-              e.currentTarget.style.color = 'white';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = 'var(--accent)';
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent)'; e.currentTarget.style.color = 'white'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--accent)'; }}
           >
             Cargar más ({processedItems.length - visibleCount} restantes)
           </button>
